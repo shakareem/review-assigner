@@ -7,15 +7,11 @@ type User struct {
 	Username string `json:"username"`
 }
 
-type TeamNameQuery = string
-
-type UserIdQuery = string
-
 type GetUsersGetReviewParams struct {
-	UserId UserIdQuery `form:"user_id" json:"user_id"`
+	UserId string `form:"user_id" json:"user_id"`
 }
 
-type PostUsersSetIsActiveJSONBody struct {
+type UsersSetIsActive struct {
 	IsActive bool   `json:"is_active"`
 	UserId   string `json:"user_id"`
 }

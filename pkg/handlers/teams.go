@@ -12,5 +12,5 @@ type TeamMember struct {
 }
 
 type GetTeamGetParams struct {
-	TeamName TeamNameQuery `form:"team_name" json:"team_name"`
+	TeamName string `form:"team_name" json:"team_name"`
 }
