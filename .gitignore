@@ -65,3 +65,6 @@ Backend-trainee-assignment-autumn-2025.md
 
 # go build output
 .bin
+
+# postgres data
+db/.postgres-data
