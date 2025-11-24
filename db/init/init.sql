@@ -3,9 +3,9 @@ CREATE TABLE IF NOT EXISTS teams (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-  user_id UUID PRIMARY KEY,
+  user_id TEXT PRIMARY KEY,
   user_name TEXT NOT NULL,
-  team_name TEXT REFERENCES team(team_name),
+  team_name TEXT REFERENCES teams(team_name),
   is_active BOOLEAN NOT NULL
 );
 
@@ -17,16 +17,16 @@ BEGIN
 END $$;
 
 CREATE TABLE IF NOT EXISTS pull_requests (
-  pr_id UUID PRIMARY KEY,
+  pr_id TEXT PRIMARY KEY,
   pr_name TEXT NOT NULL,
-  author_id UUID REFERENCES user(user_id),
+  author_id TEXT REFERENCES users(user_id),
   status pr_status NOT NULL,
   created_at TIMESTAMP NOT NULL,
   merged_at TIMESTAMP
 );
 
 CREATE TABLE pr_reviewers (
-  pr_id UUID REFERENCES pull_request(pr_id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(user_id),
+  pr_id TEXT REFERENCES pull_requests(pr_id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(user_id),
   PRIMARY KEY (pr_id, user_id)
 );

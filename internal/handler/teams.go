@@ -1,4 +1,4 @@
-package handlers
+package handler
 
 type Team struct {
 	Members  []TeamMember `json:"members"`

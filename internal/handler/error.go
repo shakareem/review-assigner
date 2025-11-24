@@ -1,4 +1,4 @@
-package handlers
+package handler
 
 type ErrorResponse struct {
 	Error struct {

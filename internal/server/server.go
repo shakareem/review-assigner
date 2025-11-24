@@ -3,7 +3,8 @@ package server
 import (
 	"net/http"
 
-	"github.com/shakareem/review-assigner/pkg/handlers"
+	"github.com/shakareem/review-assigner/internal/handler"
+	"github.com/shakareem/review-assigner/internal/storage"
 )
 
 type Handler interface {
@@ -17,12 +18,12 @@ type Handler interface {
 }
 
 type Storage interface {
-	AddTeam(handlers.Team) (handlers.Team, error)
-	GetTeam(teamName string) error
-	SetUserIsActive(userID string, isActive bool) (handlers.User, error)
-	CreatePullRequest(prID, prName, authorID string) (handlers.PullRequest, error)
-	MergePullRequest(prID string) (handlers.PullRequest, error)
-	ReassignPullRequest(prID, oldUserID string) (handlers.PullRequest, error)
+	AddTeam(handler.Team) (handler.Team, error)
+	GetTeam(teamName string) (handler.Team, error)
+	SetUserIsActive(userID string, isActive bool) (storage.User, error)
+	CreatePullRequest(prID, prName, authorID string) (handler.PullRequest, error)
+	MergePullRequest(prID string) (handler.PullRequest, error)
+	ReassignPullRequest(prID, oldUserID string) (handler.PullRequest, error)
 }
 
 type Server struct {

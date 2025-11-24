@@ -1,0 +1,165 @@
+package storage
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/lib/pq"
+)
+
+type PostgresStorage struct {
+	db *sql.DB
+}
+
+type User struct {
+	ID       string `json:"user_id"`
+	Name     string `json:"username"`
+	TeamName string `json:"team_name"`
+	IsActive bool   `json:"is_active"`
+}
+
+const (
+	PullRequestStatusMERGED PullRequestStatus = "MERGED"
+	PullRequestStatusOPEN   PullRequestStatus = "OPEN"
+)
+
+type PullRequestStatus string
+
+type PullRequest struct {
+	AssignedReviewers []string          `json:"assigned_reviewers"`
+	AuthorId          string            `json:"author_id"`
+	PullRequestId     string            `json:"pull_request_id"`
+	PullRequestName   string            `json:"pull_request_name"`
+	Status            PullRequestStatus `json:"status"`
+	CreatedAt         *time.Time        `json:"createdAt"`
+	MergedAt          *time.Time        `json:"mergedAt"`
+}
+
+var (
+	ErrAlreadyExists = errors.New("object already exists")
+)
+
+func NewPostgresStorage() (*PostgresStorage, error) {
+	port, err := strconv.Atoi(os.Getenv("POSTGRES_PORT"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	psqlInfo := fmt.Sprintf(
+		"host=%s port= %d user=%s password=%s dbname=%s sslmode=disable",
+		os.Getenv("POSTGRES_HOST"),
+		port,
+		os.Getenv("POSTGRES_USER"),
+		os.Getenv("POSTGRES_PASSWORD"),
+		os.Getenv("POSTGRES_DB"),
+	)
+
+	db, err := sql.Open("postgres", psqlInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PostgresStorage{db: db}, nil
+}
+
+func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	var exists bool
+	if err = tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM teams WHERE team_name = $1);`,
+		teamName).Scan(&exists); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if exists {
+		tx.Rollback()
+		return ErrAlreadyExists
+	}
+
+	if len(users) > 0 {
+		ids := make([]string, 0, len(users))
+		for _, u := range users {
+			ids = append(ids, u.ID)
+		}
+
+		if err = tx.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM users WHERE user_id = ANY($1));`,
+			pq.Array(ids)).Scan(&exists); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if exists {
+			tx.Rollback()
+			return ErrAlreadyExists
+		}
+	}
+
+	if _, err = tx.Exec(
+		`INSERT INTO teams (team_name) VALUES ($1);`,
+		teamName); err != nil {
+		tx.Rollback()
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			return ErrAlreadyExists
+		}
+		return err
+	}
+
+	if len(users) > 0 {
+		args := make([]any, 0, len(users)*4)
+		placeholders := ""
+		for i, u := range users {
+			if i > 0 {
+				placeholders += ","
+			}
+			base := i * 4
+			placeholders += fmt.Sprintf("($%d,$%d,$%d,$%d)", base+1, base+2, base+3, base+4)
+			args = append(args, u.ID, u.Name, teamName, u.IsActive)
+		}
+
+		query := `INSERT INTO users (user_id, user_name, team_name, is_active) VALUES ` + placeholders
+		if _, err = tx.Exec(query, args...); err != nil {
+			tx.Rollback()
+			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+				return ErrAlreadyExists
+			}
+			return err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return nil
+}
+
+func (s *PostgresStorage) GetTeam(teamName string) ([]User, error) {
+	// TODO
+	return nil, nil
+}
+func (s *PostgresStorage) SetUserIsActive(userID string, isActive bool) (User, error) {
+	// TODO
+	return User{}, nil
+}
+func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (PullRequest, error) {
+	// TODO
+	return PullRequest{}, nil
+}
+func (s *PostgresStorage) MergePullRequest(prID string) (PullRequest, error) {
+	// TODO
+	return PullRequest{}, nil
+}
+func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (PullRequest, error) {
+	// TODO
+	return PullRequest{}, nil
+}
