@@ -42,6 +42,7 @@ type PullRequest struct {
 
 var (
 	ErrAlreadyExists = errors.New("object already exists")
+	ErrDoesNotExist  = errors.New("object does not exist")
 )
 
 func NewPostgresStorage() (*PostgresStorage, error) {
@@ -144,9 +145,48 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 }
 
 func (s *PostgresStorage) GetTeam(teamName string) ([]User, error) {
-	// TODO
-	return nil, nil
+	users := []User{}
+
+	var exists bool
+	if err := s.db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM teams WHERE team_name = $1);`,
+		teamName).Scan(&exists); err != nil {
+		return users, err
+	}
+	if !exists {
+		return users, ErrDoesNotExist
+	}
+
+	rows, err := s.db.Query(
+		`SELECT user_id, user_name, is_active FROM users WHERE team_name = $1;`,
+		teamName)
+	if err != nil {
+		return users, err
+	}
+
+	var id, name string
+	var isActive bool
+	for rows.Next() {
+		err := rows.Scan(&id, &name, &isActive)
+		if err != nil {
+			return users, err
+		}
+
+		users = append(users, User{
+			ID:       id,
+			Name:     name,
+			TeamName: teamName,
+			IsActive: isActive,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return users, err
+	}
+
+	return users, nil
 }
+
 func (s *PostgresStorage) SetUserIsActive(userID string, isActive bool) (User, error) {
 	// TODO
 	return User{}, nil
