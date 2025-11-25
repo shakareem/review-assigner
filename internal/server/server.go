@@ -2,9 +2,6 @@ package server
 
 import (
 	"net/http"
-
-	"github.com/shakareem/review-assigner/internal/handler"
-	"github.com/shakareem/review-assigner/internal/storage"
 )
 
 type Handler interface {
@@ -15,15 +12,6 @@ type Handler interface {
 	GetTeamGet(w http.ResponseWriter, r *http.Request)
 	GetUsersGetReview(w http.ResponseWriter, r *http.Request)
 	PostUsersSetIsActive(w http.ResponseWriter, r *http.Request)
-}
-
-type Storage interface {
-	AddTeam(handler.Team) (handler.Team, error)
-	GetTeam(teamName string) (handler.Team, error)
-	SetUserIsActive(userID string, isActive bool) (storage.User, error)
-	CreatePullRequest(prID, prName, authorID string) (storage.PullRequest, error)
-	MergePullRequest(prID string) (storage.PullRequest, error)
-	ReassignPullRequest(prID, oldUserID string) (storage.PullRequest, error)
 }
 
 type Server struct {
