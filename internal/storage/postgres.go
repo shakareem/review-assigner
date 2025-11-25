@@ -138,6 +138,8 @@ func (s *PostgresStorage) GetTeam(teamName string) ([]User, error) {
 		return users, err
 	}
 
+	defer rows.Close()
+
 	var id, name string
 	var isActive bool
 	for rows.Next() {
