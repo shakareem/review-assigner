@@ -52,6 +52,7 @@ type Storage interface {
 var (
 	ErrAlreadyExists = errors.New("object already exists")
 	ErrDoesNotExist  = errors.New("object does not exist")
+	ErrPRMerged      = errors.New("PR already merged")
 )
 
 func NewPostgresStorage() (*PostgresStorage, error) {
@@ -207,8 +208,6 @@ func (s *PostgresStorage) SetUserIsActive(userID string, isActive bool) (*User, 
 }
 
 func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (*PullRequest, error) {
-	pr := &PullRequest{}
-
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -247,13 +246,13 @@ func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (*Pul
 		return nil, err
 	}
 
-	pr.ID = prID
-	pr.Name = prName
-	pr.Status = PRStatusOPEN
-	pr.CreatedAt = createdAt.Format(time.RFC3339)
-	pr.AssignedReviewers = reviewersIDs
-
-	return pr, nil
+	return &PullRequest{
+		ID:                prID,
+		Name:              prName,
+		Status:            PRStatusOPEN,
+		CreatedAt:         createdAt.Format(time.RFC3339),
+		AssignedReviewers: reviewersIDs,
+	}, nil
 }
 
 func (s *PostgresStorage) assignReviewers(prID, teamName, prAuthor string, tx *sql.Tx) ([]string, error) {
@@ -302,8 +301,6 @@ func (s *PostgresStorage) assignReviewers(prID, teamName, prAuthor string, tx *s
 }
 
 func (s *PostgresStorage) MergePullRequest(prID string) (*PullRequest, error) {
-	pr := &PullRequest{}
-
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -312,12 +309,14 @@ func (s *PostgresStorage) MergePullRequest(prID string) (*PullRequest, error) {
 	defer tx.Rollback()
 
 	mergedAt := time.Now()
+	pr := &PullRequest{}
+	var createdAt time.Time
 
 	if err := tx.QueryRow(
 		`UPDATE pull_requests SET pr_status = $1, merged_at = $2 WHERE pr_id = $3
-		 RETURNING pr_id, pr_name, author_id, pr_status, created_at, merged_at;`,
+		 RETURNING pr_id, pr_name, author_id, pr_status, created_at;`,
 		PRStatusMERGED, mergedAt, prID,
-	).Scan(&pr.ID, &pr.Name, &pr.AuthorId, &pr.Status, pr.CreatedAt, pr.MergedAt); err != nil {
+	).Scan(&pr.ID, &pr.Name, &pr.AuthorId, &pr.Status, &createdAt); err != nil {
 		return nil, err
 	}
 
@@ -350,11 +349,107 @@ func (s *PostgresStorage) MergePullRequest(prID string) (*PullRequest, error) {
 	pr.AssignedReviewers = reviewersIDs
 	mergedAtString := mergedAt.Format(time.RFC3339)
 	pr.MergedAt = &mergedAtString
+	pr.CreatedAt = createdAt.Format(time.RFC3339)
 
 	return pr, nil
 }
 
 func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (*PullRequest, error) {
-	// TODO
-	return nil, nil
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+
+	defer tx.Rollback()
+
+	pr := &PullRequest{}
+
+	var createdAt, mergedAt *time.Time
+	if err := tx.QueryRow(
+		`SELECT pr_id, pr_name, author_id, pr_status, created_at, merged_at
+		 FROM pull_requests WHERE pr_id = $1;`,
+		prID,
+	).Scan(&pr.ID, &pr.Name, &pr.AuthorId, &pr.Status, &createdAt, &mergedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrDoesNotExist
+		}
+		return nil, err
+	}
+
+	if pr.Status == PRStatusMERGED {
+		return nil, ErrPRMerged
+	}
+
+	var exists bool
+	if err = tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM pr_reviewers WHERE pr_id = $1 AND user_id = $2);`,
+		prID, oldUserID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrDoesNotExist
+	}
+
+	var authorTeam string
+	if err := tx.QueryRow(
+		`SELECT team_name FROM users WHERE user_id = $1;`,
+		pr.AuthorId).Scan(&authorTeam); err != nil {
+		return nil, err
+	}
+
+	var newReviewerID string
+	if err := tx.QueryRow(
+		`SELECT user_id FROM users 
+		 WHERE team_name = $1 AND is_active = TRUE 
+		 AND user_id != $2 AND user_id != $3
+		 LIMIT 1;`,
+		authorTeam, pr.AuthorId, oldUserID).Scan(&newReviewerID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrDoesNotExist // No available reviewer
+		}
+		return nil, err
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE pr_reviewers SET user_id = $1 WHERE pr_id = $2 AND user_id = $3;`,
+		newReviewerID, prID, oldUserID); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(
+		`SELECT user_id FROM pr_reviewers WHERE pr_id = $1;`,
+		prID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	reviewersIDs := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		reviewersIDs = append(reviewersIDs, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	pr.AssignedReviewers = reviewersIDs
+	if createdAt != nil {
+		pr.CreatedAt = createdAt.Format(time.RFC3339)
+	}
+	if mergedAt != nil {
+		mergedAtStr := mergedAt.Format(time.RFC3339)
+		pr.MergedAt = &mergedAtStr
+	}
+
+	return pr, nil
 }
