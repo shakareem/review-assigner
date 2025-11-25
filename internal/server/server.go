@@ -5,13 +5,13 @@ import (
 )
 
 type Handler interface {
-	PostPullRequestCreate(w http.ResponseWriter, r *http.Request)
-	PostPullRequestMerge(w http.ResponseWriter, r *http.Request)
-	PostPullRequestReassign(w http.ResponseWriter, r *http.Request)
 	PostTeamAdd(w http.ResponseWriter, r *http.Request)
 	GetTeamGet(w http.ResponseWriter, r *http.Request)
 	GetUsersGetReview(w http.ResponseWriter, r *http.Request)
 	PostUsersSetIsActive(w http.ResponseWriter, r *http.Request)
+	PostPullRequestCreate(w http.ResponseWriter, r *http.Request)
+	PostPullRequestMerge(w http.ResponseWriter, r *http.Request)
+	PostPullRequestReassign(w http.ResponseWriter, r *http.Request)
 }
 
 type Server struct {

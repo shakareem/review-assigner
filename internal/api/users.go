@@ -1,4 +1,4 @@
-package handler
+package api
 
 type GetUsersGetReviewParams struct {
 	UserId string `form:"user_id" json:"user_id"`

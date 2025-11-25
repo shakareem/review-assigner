@@ -40,15 +40,6 @@ type PullRequest struct {
 	MergedAt          *string  `json:"mergedAt"`
 }
 
-type Storage interface {
-	AddTeam(teamName string, users []User) error
-	GetTeam(teamName string) ([]User, error)
-	SetUserIsActive(userID string, isActive bool) (*User, error)
-	CreatePullRequest(prID, prName, authorID string) (*PullRequest, error)
-	MergePullRequest(prID string) (*PullRequest, error)
-	ReassignPullRequest(prID, oldUserID string) (*PullRequest, error)
-}
-
 var (
 	ErrAlreadyExists = errors.New("object already exists")
 	ErrDoesNotExist  = errors.New("object does not exist")
@@ -452,4 +443,46 @@ func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (*PullRequ
 	}
 
 	return pr, nil
+}
+
+func (s *PostgresStorage) GetUserReviewPRs(userID string) ([]PullRequest, error) {
+	rows, err := s.db.Query(`
+		SELECT pr.pr_id, pr.pr_name, pr.author_id, pr.pr_status
+		FROM pull_requests pr
+		JOIN pr_reviewers rev ON pr.pr_id = rev.pr_id
+		WHERE rev.user_id = $1;`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	prs := []PullRequest{}
+	for rows.Next() {
+		pr := PullRequest{}
+
+		if err := rows.Scan(&pr.ID, &pr.Name, &pr.AuthorId, &pr.Status); err != nil {
+			return nil, err
+		}
+
+		prs = append(prs, pr)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(prs) == 0 {
+		var exists bool
+		if err := s.db.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM users WHERE user_id = $1);`,
+			userID).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, ErrDoesNotExist
+		}
+	}
+
+	return prs, nil
 }

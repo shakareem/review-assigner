@@ -1,4 +1,4 @@
-package handler
+package api
 
 import "github.com/shakareem/review-assigner/internal/storage"
 
