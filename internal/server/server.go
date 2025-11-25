@@ -21,9 +21,9 @@ type Storage interface {
 	AddTeam(handler.Team) (handler.Team, error)
 	GetTeam(teamName string) (handler.Team, error)
 	SetUserIsActive(userID string, isActive bool) (storage.User, error)
-	CreatePullRequest(prID, prName, authorID string) (handler.PullRequest, error)
-	MergePullRequest(prID string) (handler.PullRequest, error)
-	ReassignPullRequest(prID, oldUserID string) (handler.PullRequest, error)
+	CreatePullRequest(prID, prName, authorID string) (storage.PullRequest, error)
+	MergePullRequest(prID string) (storage.PullRequest, error)
+	ReassignPullRequest(prID, oldUserID string) (storage.PullRequest, error)
 }
 
 type Server struct {

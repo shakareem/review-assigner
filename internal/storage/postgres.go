@@ -24,20 +24,20 @@ type User struct {
 }
 
 const (
-	PullRequestStatusMERGED PullRequestStatus = "MERGED"
-	PullRequestStatusOPEN   PullRequestStatus = "OPEN"
+	PRStatusMERGED PRStatus = "MERGED"
+	PRStatusOPEN   PRStatus = "OPEN"
 )
 
-type PullRequestStatus string
+type PRStatus string
 
 type PullRequest struct {
-	AssignedReviewers []string          `json:"assigned_reviewers"`
-	AuthorId          string            `json:"author_id"`
-	PullRequestId     string            `json:"pull_request_id"`
-	PullRequestName   string            `json:"pull_request_name"`
-	Status            PullRequestStatus `json:"status"`
-	CreatedAt         *time.Time        `json:"createdAt"`
-	MergedAt          *time.Time        `json:"mergedAt"`
+	AssignedReviewers []string `json:"assigned_reviewers"`
+	AuthorId          string   `json:"author_id"`
+	PullRequestId     string   `json:"pull_request_id"`
+	PullRequestName   string   `json:"pull_request_name"`
+	Status            PRStatus `json:"status"`
+	CreatedAt         *string  `json:"createdAt"`
+	MergedAt          *string  `json:"mergedAt"`
 }
 
 var (
@@ -74,15 +74,15 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 		return err
 	}
 
+	defer tx.Rollback()
+
 	var exists bool
 	if err = tx.QueryRow(
 		`SELECT EXISTS(SELECT 1 FROM teams WHERE team_name = $1);`,
 		teamName).Scan(&exists); err != nil {
-		tx.Rollback()
 		return err
 	}
 	if exists {
-		tx.Rollback()
 		return ErrAlreadyExists
 	}
 
@@ -95,11 +95,9 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 		if err = tx.QueryRow(
 			`SELECT EXISTS(SELECT 1 FROM users WHERE user_id = ANY($1));`,
 			pq.Array(ids)).Scan(&exists); err != nil {
-			tx.Rollback()
 			return err
 		}
 		if exists {
-			tx.Rollback()
 			return ErrAlreadyExists
 		}
 	}
@@ -107,7 +105,6 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 	if _, err = tx.Exec(
 		`INSERT INTO teams (team_name) VALUES ($1);`,
 		teamName); err != nil {
-		tx.Rollback()
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return ErrAlreadyExists
 		}
@@ -128,7 +125,6 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 
 		query := `INSERT INTO users (user_id, user_name, team_name, is_active) VALUES ` + placeholders
 		if _, err = tx.Exec(query, args...); err != nil {
-			tx.Rollback()
 			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 				return ErrAlreadyExists
 			}
@@ -137,7 +133,6 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 	}
 
 	if err = tx.Commit(); err != nil {
-		tx.Rollback()
 		return err
 	}
 
@@ -203,9 +198,100 @@ func (s *PostgresStorage) SetUserIsActive(userID string, isActive bool) (User, e
 }
 
 func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (PullRequest, error) {
-	// TODO
-	return PullRequest{}, nil
+	pr := PullRequest{}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return pr, err
+	}
+
+	defer tx.Rollback()
+
+	var authorTeam string
+	if err := tx.QueryRow(
+		`SELECT team_name FROM users WHERE user_id = $1;`,
+		authorID).Scan(&authorTeam); err != nil {
+		if err == sql.ErrNoRows {
+			return pr, ErrDoesNotExist
+		}
+		return pr, err
+	}
+
+	createdAt := time.Now().Format(time.RFC3339)
+
+	if _, err = tx.Exec(
+		`INSERT INTO pull_requests (pr_id, pr_name, author_id, pr_status, created_at) 
+		VALUES ($1, $2, $3, $4, $5);`,
+		prID, prName, authorID, PRStatusOPEN, createdAt); err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			return pr, ErrAlreadyExists
+		}
+		return pr, err
+	}
+
+	reviewersIDs, err := s.assignReviewers(prID, authorTeam, authorID, tx)
+	if err != nil {
+		return pr, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return pr, err
+	}
+
+	pr.PullRequestId = prID
+	pr.PullRequestName = prName
+	pr.Status = PRStatusOPEN
+	pr.CreatedAt = &createdAt
+	pr.AssignedReviewers = reviewersIDs
+
+	return pr, nil
 }
+
+func (s *PostgresStorage) assignReviewers(prID, teamName, prAuthor string, tx *sql.Tx) ([]string, error) {
+	rows, err := tx.Query(
+		`SELECT user_id FROM users 
+		WHERE team_name = $1 AND is_active = TRUE AND user_id != $2
+		LIMIT 2;`,
+		teamName, prAuthor)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	reviewersIDs := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		reviewersIDs = append(reviewersIDs, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(reviewersIDs) > 0 {
+		args := make([]any, 0, len(reviewersIDs)*2)
+		placeholders := ""
+		for i, id := range reviewersIDs {
+			if i > 0 {
+				placeholders += ","
+			}
+			base := i * 2
+			placeholders += fmt.Sprintf("($%d,$%d)", base+1, base+2)
+			args = append(args, prID, id)
+		}
+
+		query := `INSERT INTO pr_reviewers (pr_id, user_id) VALUES ` + placeholders
+		if _, err := tx.Exec(query, args...); err != nil {
+			return nil, err
+		}
+	}
+
+	return reviewersIDs, nil
+}
+
 func (s *PostgresStorage) MergePullRequest(prID string) (PullRequest, error) {
 	// TODO
 	return PullRequest{}, nil
