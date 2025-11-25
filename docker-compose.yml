@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    command: "./.bin/assigner"
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+    env_file:
+      - .env
+
+  db:
+    restart: always
+    image: postgres:latest
+    env_file:
+      - .env
+    expose:
+      - "5432"
+    volumes:
+      - ./db/.postgres-data:/var/lib/postgresql:Z
+      - ./db/init:/docker-entrypoint-initdb.d:Z
