@@ -31,12 +31,12 @@ const (
 type PRStatus string
 
 type PullRequest struct {
-	AssignedReviewers []string `json:"assigned_reviewers"`
+	ID                string   `json:"pull_request_id"`
+	Name              string   `json:"pull_request_name"`
 	AuthorId          string   `json:"author_id"`
-	PullRequestId     string   `json:"pull_request_id"`
-	PullRequestName   string   `json:"pull_request_name"`
 	Status            PRStatus `json:"status"`
-	CreatedAt         *string  `json:"createdAt"`
+	AssignedReviewers []string `json:"assigned_reviewers"`
+	CreatedAt         string   `json:"createdAt"`
 	MergedAt          *string  `json:"mergedAt"`
 }
 
@@ -217,7 +217,7 @@ func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (Pull
 		return pr, err
 	}
 
-	createdAt := time.Now().Format(time.RFC3339)
+	createdAt := time.Now()
 
 	if _, err = tx.Exec(
 		`INSERT INTO pull_requests (pr_id, pr_name, author_id, pr_status, created_at) 
@@ -238,10 +238,10 @@ func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (Pull
 		return pr, err
 	}
 
-	pr.PullRequestId = prID
-	pr.PullRequestName = prName
+	pr.ID = prID
+	pr.Name = prName
 	pr.Status = PRStatusOPEN
-	pr.CreatedAt = &createdAt
+	pr.CreatedAt = createdAt.Format(time.RFC3339)
 	pr.AssignedReviewers = reviewersIDs
 
 	return pr, nil
@@ -293,8 +293,56 @@ func (s *PostgresStorage) assignReviewers(prID, teamName, prAuthor string, tx *s
 }
 
 func (s *PostgresStorage) MergePullRequest(prID string) (PullRequest, error) {
-	// TODO
-	return PullRequest{}, nil
+	pr := PullRequest{}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return pr, err
+	}
+
+	defer tx.Rollback()
+
+	mergedAt := time.Now()
+
+	if err := tx.QueryRow(
+		`UPDATE pull_requests SET pr_status = $1, merged_at = $2 WHERE pr_id = $3
+		 RETURNING pr_id, pr_name, author_id, pr_status, created_at, merged_at;`,
+		PRStatusMERGED, mergedAt, prID,
+	).Scan(&pr.ID, &pr.Name, &pr.AuthorId, &pr.Status, pr.CreatedAt, pr.MergedAt); err != nil {
+		return pr, err
+	}
+
+	rows, err := tx.Query(
+		`SELECT user_id FROM pr_reviewers WHERE pr_id = $1;`,
+		prID,
+	)
+	if err != nil {
+		return pr, err
+	}
+	defer rows.Close()
+
+	reviewersIDs := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return pr, err
+		}
+		reviewersIDs = append(reviewersIDs, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return pr, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return pr, err
+	}
+
+	pr.AssignedReviewers = reviewersIDs
+	mergedAtString := mergedAt.Format(time.RFC3339)
+	pr.MergedAt = &mergedAtString
+
+	return pr, nil
 }
 func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (PullRequest, error) {
 	// TODO

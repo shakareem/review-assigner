@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS pull_requests (
   pr_name TEXT NOT NULL,
   author_id TEXT REFERENCES users(user_id),
   pr_status pr_status NOT NULL,
-  created_at TEXT NOT NULL,
-  merged_at TEXT
+  created_at TIMESTAMP NOT NULL,
+  merged_at TIMESTAMP
 );
 
 CREATE TABLE pr_reviewers (
