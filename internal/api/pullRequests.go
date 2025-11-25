@@ -1,6 +1,10 @@
 package api
 
-import "github.com/shakareem/review-assigner/internal/storage"
+import (
+	"net/http"
+
+	"github.com/shakareem/review-assigner/internal/storage"
+)
 
 type PullRequestShort struct {
 	AuthorId        string           `json:"author_id"`
@@ -22,4 +26,16 @@ type PullRequestMerge struct {
 type PullRequestReassign struct {
 	OldUserId     string `json:"old_user_id"`
 	PullRequestId string `json:"pull_request_id"`
+}
+
+func (h *Handler) PostPullRequestCreate(w http.ResponseWriter, r *http.Request) {
+	// TODO
+}
+
+func (h *Handler) PostPullRequestMerge(w http.ResponseWriter, r *http.Request) {
+	// TODO
+}
+
+func (h *Handler) PostPullRequestReassign(w http.ResponseWriter, r *http.Request) {
+	// TODO
 }

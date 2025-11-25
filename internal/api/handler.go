@@ -33,3 +33,9 @@ const (
 	PRMERGED    ErrorCode = "PR_MERGED"
 	TEAMEXISTS  ErrorCode = "TEAM_EXISTS"
 )
+
+func NewHandler(s Storage) *Handler {
+	return &Handler{
+		Storage: s,
+	}
+}
