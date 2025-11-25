@@ -22,11 +22,6 @@ type AddTeamResponse struct {
 	Team Team `json:"team"`
 }
 
-type GetTeamResponse struct {
-	TeamName string       `json:"team_name"`
-	Members  []TeamMember `json:"members"`
-}
-
 func (h *Handler) PostTeamAdd(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var req Team
@@ -73,7 +68,7 @@ func (h *Handler) GetTeamGet(w http.ResponseWriter, r *http.Request) {
 	if teamName == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{
-			Error: Error{Code: NOTFOUND, Message: "team_name parameter required"},
+			Error: Error{Code: BADREQUEST, Message: "team_name parameter required"},
 		})
 		return
 	}

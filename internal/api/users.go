@@ -31,7 +31,7 @@ func (h *Handler) GetUsersGetReview(w http.ResponseWriter, r *http.Request) {
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{
-			Error: Error{Code: NOTFOUND, Message: "user_id parameter required"},
+			Error: Error{Code: BADREQUEST, Message: "user_id parameter required"},
 		})
 		return
 	}

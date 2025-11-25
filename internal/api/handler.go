@@ -40,6 +40,7 @@ const (
 	PRMERGED    ErrorCode = "PR_MERGED"
 	TEAMEXISTS  ErrorCode = "TEAM_EXISTS"
 	USEREXISTS  ErrorCode = "USER_EXISTS"
+	BADREQUEST  ErrorCode = "BAD_REQUEST"
 )
 
 func NewHandler(s Storage) *Handler {
@@ -58,7 +59,7 @@ func internalError(w http.ResponseWriter, err error) {
 func invalidBody(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusBadRequest)
 	json.NewEncoder(w).Encode(ErrorResponse{
-		Error: Error{Code: NOTFOUND, Message: "invalid request body"},
+		Error: Error{Code: BADREQUEST, Message: "invalid request body"},
 	})
 }
 

@@ -18,7 +18,7 @@ type Server struct {
 	Server *http.Server
 }
 
-const PORT = ":8080"
+const PORT = ":80"
 
 func NewServer(h Handler) *Server {
 	m := http.NewServeMux()
