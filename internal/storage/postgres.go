@@ -188,9 +188,20 @@ func (s *PostgresStorage) GetTeam(teamName string) ([]User, error) {
 }
 
 func (s *PostgresStorage) SetUserIsActive(userID string, isActive bool) (User, error) {
-	// TODO
-	return User{}, nil
+	user := User{}
+	err := s.db.QueryRow(
+		`UPDATE users SET is_active = $1 WHERE user_id = $2 
+		RETURNING user_id, user_name, team_name, is_active;`,
+		isActive, userID).Scan(&user.ID, &user.Name, &user.TeamName, &user.IsActive)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return user, ErrDoesNotExist
+		}
+		return user, err
+	}
+	return user, nil
 }
+
 func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (PullRequest, error) {
 	// TODO
 	return PullRequest{}, nil
