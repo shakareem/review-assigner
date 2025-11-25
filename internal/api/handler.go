@@ -1,6 +1,11 @@
 package api
 
-import "github.com/shakareem/review-assigner/internal/storage"
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/shakareem/review-assigner/internal/storage"
+)
 
 type Storage interface {
 	AddTeam(teamName string, users []storage.User) error
@@ -16,11 +21,13 @@ type Handler struct {
 	Storage Storage
 }
 
+type Error struct {
+	Code    ErrorCode `json:"code"`
+	Message string    `json:"message"`
+}
+
 type ErrorResponse struct {
-	Error struct {
-		Code    ErrorCode `json:"code"`
-		Message string    `json:"message"`
-	} `json:"error"`
+	Error Error `json:"error"`
 }
 
 type ErrorCode string
@@ -32,10 +39,32 @@ const (
 	PREXISTS    ErrorCode = "PR_EXISTS"
 	PRMERGED    ErrorCode = "PR_MERGED"
 	TEAMEXISTS  ErrorCode = "TEAM_EXISTS"
+	USEREXISTS  ErrorCode = "USER_EXISTS"
 )
 
 func NewHandler(s Storage) *Handler {
 	return &Handler{
 		Storage: s,
 	}
+}
+
+func internalError(w http.ResponseWriter, err error) {
+	w.WriteHeader(http.StatusInternalServerError)
+	json.NewEncoder(w).Encode(ErrorResponse{
+		Error: Error{Code: NOTFOUND, Message: err.Error()},
+	})
+}
+
+func invalidBody(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(ErrorResponse{
+		Error: Error{Code: NOTFOUND, Message: "invalid request body"},
+	})
+}
+
+func notFound(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNotFound)
+	json.NewEncoder(w).Encode(ErrorResponse{
+		Error: Error{Code: NOTFOUND, Message: "resource not found"},
+	})
 }

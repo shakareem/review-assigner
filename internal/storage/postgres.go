@@ -41,9 +41,13 @@ type PullRequest struct {
 }
 
 var (
-	ErrAlreadyExists = errors.New("object already exists")
-	ErrDoesNotExist  = errors.New("object does not exist")
-	ErrPRMerged      = errors.New("PR already merged")
+	ErrTeamAlreadyExists = errors.New("team already exists")
+	ErrUserAlreadyExists = errors.New("user already exists")
+	ErrPRAlreadyExists   = errors.New("PR already exists")
+	ErrNotFound          = errors.New("resourse not found")
+	ErrPRMerged          = errors.New("PR already merged")
+	ErrNotAssigned       = errors.New("reviewer is not assigned to this PR")
+	ErrNoCandidate       = errors.New("no active replacement candidate in team")
 )
 
 func NewPostgresStorage() (*PostgresStorage, error) {
@@ -77,37 +81,11 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 
 	defer tx.Rollback()
 
-	var exists bool
-	if err = tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM teams WHERE team_name = $1);`,
-		teamName).Scan(&exists); err != nil {
-		return err
-	}
-	if exists {
-		return ErrAlreadyExists
-	}
-
-	if len(users) > 0 {
-		ids := make([]string, 0, len(users))
-		for _, u := range users {
-			ids = append(ids, u.ID)
-		}
-
-		if err = tx.QueryRow(
-			`SELECT EXISTS(SELECT 1 FROM users WHERE user_id = ANY($1));`,
-			pq.Array(ids)).Scan(&exists); err != nil {
-			return err
-		}
-		if exists {
-			return ErrAlreadyExists
-		}
-	}
-
 	if _, err = tx.Exec(
 		`INSERT INTO teams (team_name) VALUES ($1);`,
 		teamName); err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			return ErrAlreadyExists
+			return ErrTeamAlreadyExists
 		}
 		return err
 	}
@@ -127,7 +105,7 @@ func (s *PostgresStorage) AddTeam(teamName string, users []User) error {
 		query := `INSERT INTO users (user_id, user_name, team_name, is_active) VALUES ` + placeholders
 		if _, err = tx.Exec(query, args...); err != nil {
 			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-				return ErrAlreadyExists
+				return ErrUserAlreadyExists
 			}
 			return err
 		}
@@ -150,7 +128,7 @@ func (s *PostgresStorage) GetTeam(teamName string) ([]User, error) {
 		return users, err
 	}
 	if !exists {
-		return users, ErrDoesNotExist
+		return users, ErrNotFound
 	}
 
 	rows, err := s.db.Query(
@@ -191,7 +169,7 @@ func (s *PostgresStorage) SetUserIsActive(userID string, isActive bool) (*User, 
 		isActive, userID).Scan(&user.ID, &user.Name, &user.TeamName, &user.IsActive)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrDoesNotExist
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
@@ -211,7 +189,7 @@ func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (*Pul
 		`SELECT team_name FROM users WHERE user_id = $1;`,
 		authorID).Scan(&authorTeam); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrDoesNotExist
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
@@ -223,7 +201,7 @@ func (s *PostgresStorage) CreatePullRequest(prID, prName, authorID string) (*Pul
 		VALUES ($1, $2, $3, $4, $5);`,
 		prID, prName, authorID, PRStatusOPEN, createdAt); err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			return nil, ErrAlreadyExists
+			return nil, ErrPRAlreadyExists
 		}
 		return nil, err
 	}
@@ -353,6 +331,16 @@ func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (*PullRequ
 
 	defer tx.Rollback()
 
+	var exists bool
+	if err = tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM users WHERE user_id = $1);`,
+		oldUserID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+
 	pr := &PullRequest{}
 
 	var createdAt, mergedAt *time.Time
@@ -362,7 +350,7 @@ func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (*PullRequ
 		prID,
 	).Scan(&pr.ID, &pr.Name, &pr.AuthorId, &pr.Status, &createdAt, &mergedAt); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrDoesNotExist
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
@@ -371,14 +359,13 @@ func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (*PullRequ
 		return nil, ErrPRMerged
 	}
 
-	var exists bool
 	if err = tx.QueryRow(
 		`SELECT EXISTS(SELECT 1 FROM pr_reviewers WHERE pr_id = $1 AND user_id = $2);`,
 		prID, oldUserID).Scan(&exists); err != nil {
 		return nil, err
 	}
 	if !exists {
-		return nil, ErrDoesNotExist
+		return nil, ErrNotAssigned
 	}
 
 	var authorTeam string
@@ -396,7 +383,7 @@ func (s *PostgresStorage) ReassignPullRequest(prID, oldUserID string) (*PullRequ
 		 LIMIT 1;`,
 		authorTeam, pr.AuthorId, oldUserID).Scan(&newReviewerID); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrDoesNotExist // No available reviewer
+			return nil, ErrNoCandidate
 		}
 		return nil, err
 	}
@@ -480,7 +467,7 @@ func (s *PostgresStorage) GetUserReviewPRs(userID string) ([]PullRequest, error)
 			return nil, err
 		}
 		if !exists {
-			return nil, ErrDoesNotExist
+			return nil, ErrNotFound
 		}
 	}
 
